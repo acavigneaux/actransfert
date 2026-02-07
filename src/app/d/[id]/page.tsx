@@ -122,12 +122,13 @@ export default function DownloadPage() {
           {/* Sender info */}
           <div className="flex items-center justify-center gap-2 mb-6">
             <div className="w-7 h-7 rounded-full bg-accent/15 flex items-center justify-center">
-              <span className="text-accent text-xs font-semibold">
-                {data.meta.username.charAt(0).toUpperCase()}
-              </span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="M22 4L12 13 2 4" />
+              </svg>
             </div>
             <span className="text-sm text-muted">
-              Envoye par <span className="text-foreground font-medium">{data.meta.username}</span>
+              Envoye a <span className="text-accent font-medium">{data.meta.email}</span>
             </span>
           </div>
 

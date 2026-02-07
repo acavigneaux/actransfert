@@ -5,10 +5,13 @@ import JSZip from "jszip";
 import Logo from "@/components/Logo";
 import type { CreateTransferResponse } from "@/lib/types";
 
-type Step = "username" | "upload" | "done";
+type Step = "email" | "upload" | "done";
 
-function sanitizeUsername(name: string): string {
-  return name
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function sanitizeEmail(email: string): string {
+  const local = email.split("@")[0] || "";
+  return local
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]/g, "_")
@@ -107,41 +110,43 @@ async function readDirectoryEntries(entry: FileSystemDirectoryEntry): Promise<Fi
   return files;
 }
 
-// ─── Step 1: Username ───
-function UsernameStep({
-  username,
-  setUsername,
+// ─── Step 1: Email ───
+function EmailStep({
+  email,
+  setEmail,
   onContinue,
 }: {
-  username: string;
-  setUsername: (v: string) => void;
+  email: string;
+  setEmail: (v: string) => void;
   onContinue: () => void;
 }) {
+  const isValid = EMAIL_REGEX.test(email);
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (username.trim()) onContinue();
+    if (isValid) onContinue();
   };
 
   return (
     <div className="card p-8 w-full max-w-md animate-slide-up">
       <h2 className="font-display text-2xl font-bold mb-2 text-foreground">
-        Qui envoie ?
+        A qui envoyer ?
       </h2>
       <p className="text-muted text-sm mb-6">
-        Entrez votre nom pour identifier le transfert.
+        Le lien de telechargement sera envoye a cette adresse.
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <input
-          type="text"
-          value={username}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
-          placeholder="Votre nom ou pseudo"
+          type="email"
+          value={email}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+          placeholder="email@exemple.com"
           className="input-field"
           autoFocus
         />
         <button
           type="submit"
-          disabled={!username.trim()}
+          disabled={!isValid}
           className="btn-primary w-full"
         >
           Continuer
@@ -153,11 +158,11 @@ function UsernameStep({
 
 // ─── Step 2: Upload ───
 function UploadStep({
-  username,
+  email,
   onEdit,
   onDone,
 }: {
-  username: string;
+  email: string;
   onEdit: () => void;
   onDone: (transferId: string) => void;
 }) {
@@ -177,7 +182,7 @@ function UploadStep({
       setError("");
 
       try {
-        const safe = sanitizeUsername(username);
+        const safe = sanitizeEmail(email);
         const ts = formatDate();
         let blob: Blob;
         let filename: string;
@@ -211,7 +216,7 @@ function UploadStep({
             filename,
             size: blob.size,
             contentType,
-            username,
+            email,
           }),
         });
 
@@ -233,7 +238,7 @@ function UploadStep({
         setIsProcessing(false);
       }
     },
-    [username, onDone]
+    [email, onDone]
   );
 
   const handleDrop = useCallback(
@@ -312,18 +317,19 @@ function UploadStep({
 
   return (
     <div className="card p-8 w-full max-w-lg animate-slide-up">
-      {/* Username badge */}
+      {/* Email badge */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-accent/15 flex items-center justify-center">
-            <span className="text-accent text-sm font-semibold">
-              {username.charAt(0).toUpperCase()}
-            </span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="M22 4L12 13 2 4" />
+            </svg>
           </div>
-          <span className="text-sm font-medium text-foreground">{username}</span>
+          <span className="text-sm font-medium text-foreground truncate max-w-[250px]">{email}</span>
         </div>
         {!isProcessing && (
-          <button onClick={onEdit} className="text-xs text-muted hover:text-accent transition-colors">
+          <button onClick={onEdit} className="text-xs text-muted hover:text-accent transition-colors flex-shrink-0">
             modifier
           </button>
         )}
@@ -428,9 +434,11 @@ function UploadStep({
 // ─── Step 3: Done ───
 function DoneStep({
   transferId,
+  email,
   onReset,
 }: {
   transferId: string;
+  email: string;
   onReset: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -444,7 +452,6 @@ function DoneStep({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback
       const input = document.createElement("input");
       input.value = shareUrl;
       document.body.appendChild(input);
@@ -476,7 +483,7 @@ function DoneStep({
         Transfert envoye
       </h2>
       <p className="text-sm text-muted mb-4">
-        Partagez ce lien pour telecharger le fichier :
+        Un email avec le lien a ete envoye a <span className="text-accent">{email}</span>
       </p>
 
       {/* Share link */}
@@ -497,20 +504,20 @@ function DoneStep({
 
 // ─── Main Page ───
 export default function Home() {
-  const [step, setStep] = useState<Step>("username");
-  const [username, setUsername] = useState("");
+  const [step, setStep] = useState<Step>("email");
+  const [email, setEmail] = useState("");
   const [transferId, setTransferId] = useState("");
 
   const handleContinue = () => setStep("upload");
-  const handleEditUsername = () => setStep("username");
+  const handleEditEmail = () => setStep("email");
   const handleDone = (id: string) => {
     setTransferId(id);
     setStep("done");
   };
   const handleReset = () => {
-    setUsername("");
+    setEmail("");
     setTransferId("");
-    setStep("username");
+    setStep("email");
   };
 
   return (
@@ -519,22 +526,22 @@ export default function Home() {
         <Logo />
       </div>
 
-      {step === "username" && (
-        <UsernameStep
-          username={username}
-          setUsername={setUsername}
+      {step === "email" && (
+        <EmailStep
+          email={email}
+          setEmail={setEmail}
           onContinue={handleContinue}
         />
       )}
       {step === "upload" && (
         <UploadStep
-          username={username}
-          onEdit={handleEditUsername}
+          email={email}
+          onEdit={handleEditEmail}
           onDone={handleDone}
         />
       )}
       {step === "done" && (
-        <DoneStep transferId={transferId} onReset={handleReset} />
+        <DoneStep transferId={transferId} email={email} onReset={handleReset} />
       )}
     </main>
   );

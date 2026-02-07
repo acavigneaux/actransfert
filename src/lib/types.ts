@@ -3,7 +3,7 @@ export interface TransferMeta {
   filename: string;
   size: number;
   contentType: string;
-  username: string;
+  email: string;
   createdAt: string;
 }
 
@@ -11,7 +11,7 @@ export interface CreateTransferRequest {
   filename: string;
   size: number;
   contentType: string;
-  username: string;
+  email: string;
 }
 
 export interface CreateTransferResponse {
