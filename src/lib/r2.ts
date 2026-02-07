@@ -29,10 +29,11 @@ export async function createPresignedUploadUrl(
   return getSignedUrl(R2, command, { expiresIn: 900 }); // 15 min
 }
 
-export async function createPresignedDownloadUrl(key: string): Promise<string> {
+export async function createPresignedDownloadUrl(key: string, filename: string): Promise<string> {
   const command = new GetObjectCommand({
     Bucket: BUCKET,
     Key: key,
+    ResponseContentDisposition: `attachment; filename="${filename}"`,
   });
   return getSignedUrl(R2, command, { expiresIn: 3600 }); // 1 hour
 }

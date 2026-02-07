@@ -16,7 +16,7 @@ export async function GET(
     }
 
     const fileKey = `transfers/${id}/${meta.filename}`;
-    const downloadUrl = await createPresignedDownloadUrl(fileKey);
+    const downloadUrl = await createPresignedDownloadUrl(fileKey, meta.filename);
 
     const response: GetTransferResponse = { meta, downloadUrl };
     return NextResponse.json(response);
