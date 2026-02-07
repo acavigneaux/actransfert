@@ -44,8 +44,7 @@ export async function POST(request: NextRequest) {
     const response: CreateTransferResponse = { id, uploadUrl };
     return NextResponse.json(response);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("POST /api/transfer error:", message);
-    return NextResponse.json({ error: "Internal server error", debug: message }, { status: 500 });
+    console.error("POST /api/transfer error:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
