@@ -4,6 +4,7 @@ import { createPresignedUploadUrl, putJsonObject } from "@/lib/r2";
 import type { TransferMeta, CreateTransferRequest, CreateTransferResponse } from "@/lib/types";
 
 const MAX_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function generateId(): string {
   return crypto.randomBytes(6).toString("base64url");
@@ -13,8 +14,12 @@ export async function POST(request: NextRequest) {
   try {
     const body: CreateTransferRequest = await request.json();
 
-    if (!body.filename || !body.size || !body.username) {
+    if (!body.filename || !body.size || !body.email) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    if (!EMAIL_REGEX.test(body.email)) {
+      return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
     }
 
     if (body.size > MAX_SIZE) {
@@ -36,7 +41,7 @@ export async function POST(request: NextRequest) {
       filename: body.filename,
       size: body.size,
       contentType: body.contentType || "application/octet-stream",
-      username: body.username,
+      email: body.email,
       createdAt: new Date().toISOString(),
     };
     await putJsonObject(metaKey, meta);
