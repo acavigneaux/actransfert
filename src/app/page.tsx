@@ -231,6 +231,10 @@ function UploadStep({
         setStatusText("Envoi en cours...");
         await uploadToR2(uploadUrl, blob, contentType, setUploadProgress);
 
+        // Send email notification after upload succeeds
+        setStatusText("Envoi de l'email...");
+        await fetch(`/api/transfer/${id}/confirm`, { method: "POST" });
+
         onDone(id);
       } catch (err) {
         console.error("Upload error:", err);
