@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { nanoid } from "nanoid";
+import crypto from "crypto";
 import { createPresignedUploadUrl, putJsonObject } from "@/lib/r2";
 import type { TransferMeta, CreateTransferRequest, CreateTransferResponse } from "@/lib/types";
 
 const MAX_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB
+
+function generateId(): string {
+  return crypto.randomBytes(6).toString("base64url");
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,7 +21,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File too large (max 2 GB)" }, { status: 413 });
     }
 
-    const id = nanoid(10);
+    const id = generateId();
     const fileKey = `transfers/${id}/${body.filename}`;
     const metaKey = `transfers/${id}/meta.json`;
 
