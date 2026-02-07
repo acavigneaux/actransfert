@@ -2,7 +2,8 @@
 
 import { useState, useRef, useCallback, type DragEvent, type ChangeEvent, type FormEvent } from "react";
 import JSZip from "jszip";
-import { saveAs } from "file-saver";
+import Logo from "@/components/Logo";
+import type { CreateTransferResponse } from "@/lib/types";
 
 type Step = "username" | "upload" | "done";
 
@@ -28,6 +29,33 @@ function formatDate(): string {
 function getFileExtension(filename: string): string {
   const parts = filename.split(".");
   return parts.length > 1 ? parts.pop()! : "";
+}
+
+function uploadToR2(
+  url: string,
+  blob: Blob,
+  contentType: string,
+  onProgress: (pct: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`Upload failed: ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.send(blob);
+  });
 }
 
 // Recursively read all files from a directory entry
@@ -77,28 +105,6 @@ async function readDirectoryEntries(entry: FileSystemDirectoryEntry): Promise<Fi
   }
 
   return files;
-}
-
-// ─── Logo Component ───
-function Logo() {
-  return (
-    <div className="flex items-center gap-3 select-none">
-      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent-hover flex items-center justify-center shadow-lg shadow-accent/20">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 5v10m0 0l-4-4m4 4l4-4" />
-          <path d="M6 19h12" />
-        </svg>
-      </div>
-      <div>
-        <h1 className="font-display text-xl font-bold tracking-tight text-foreground">
-          AC<span className="text-accent">Transfert</span>
-        </h1>
-        <p className="text-[11px] text-muted tracking-widest uppercase">
-          Drop &middot; Name &middot; Done
-        </p>
-      </div>
-    </div>
-  );
 }
 
 // ─── Step 1: Username ───
@@ -153,10 +159,13 @@ function UploadStep({
 }: {
   username: string;
   onEdit: () => void;
-  onDone: (filename: string) => void;
+  onDone: (transferId: string) => void;
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [statusText, setStatusText] = useState("");
+  const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -164,29 +173,63 @@ function UploadStep({
     async (files: File[], forceZip = false) => {
       if (files.length === 0) return;
       setIsProcessing(true);
+      setUploadProgress(0);
+      setError("");
 
       try {
         const safe = sanitizeUsername(username);
         const ts = formatDate();
+        let blob: Blob;
+        let filename: string;
+        let contentType: string;
 
         if (files.length === 1 && !forceZip) {
           const ext = getFileExtension(files[0].name);
-          const outName = `${safe}_${ts}${ext ? `.${ext}` : ""}`;
-          saveAs(files[0], outName);
-          onDone(outName);
+          filename = `${safe}_${ts}${ext ? `.${ext}` : ""}`;
+          blob = files[0];
+          contentType = files[0].type || "application/octet-stream";
         } else {
+          setStatusText("Compression...");
           const zip = new JSZip();
           for (const file of files) {
             const path =
               (file as File & { relativePath?: string }).relativePath || file.name;
             zip.file(path, file);
           }
-          const blob = await zip.generateAsync({ type: "blob" });
-          const outName = `${safe}_${ts}.zip`;
-          saveAs(blob, outName);
-          onDone(outName);
+          const zipBlob = await zip.generateAsync({ type: "blob" });
+          filename = `${safe}_${ts}.zip`;
+          blob = zipBlob;
+          contentType = "application/zip";
         }
-      } catch {
+
+        // Request presigned URL from API
+        setStatusText("Preparation...");
+        const res = await fetch("/api/transfer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename,
+            size: blob.size,
+            contentType,
+            username,
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to create transfer");
+        }
+
+        const { id, uploadUrl }: CreateTransferResponse = await res.json();
+
+        // Upload directly to R2
+        setStatusText("Envoi en cours...");
+        await uploadToR2(uploadUrl, blob, contentType, setUploadProgress);
+
+        onDone(id);
+      } catch (err) {
+        console.error("Upload error:", err);
+        setError(err instanceof Error ? err.message : "Erreur lors du transfert");
         setIsProcessing(false);
       }
     },
@@ -279,18 +322,37 @@ function UploadStep({
           </div>
           <span className="text-sm font-medium text-foreground">{username}</span>
         </div>
-        <button onClick={onEdit} className="text-xs text-muted hover:text-accent transition-colors">
-          modifier
-        </button>
+        {!isProcessing && (
+          <button onClick={onEdit} className="text-xs text-muted hover:text-accent transition-colors">
+            modifier
+          </button>
+        )}
       </div>
 
       {isProcessing ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-4 animate-fade-in">
+        <div className="flex flex-col items-center justify-center py-12 gap-5 animate-fade-in">
           <div className="spinner" />
-          <p className="text-sm text-muted">Preparation du transfert...</p>
+          <div className="w-full max-w-xs">
+            <div className="flex justify-between text-xs text-muted mb-2">
+              <span>{statusText}</span>
+              <span>{uploadProgress}%</span>
+            </div>
+            <div className="progress-bar-track">
+              <div
+                className="progress-bar-fill"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+          </div>
         </div>
       ) : (
         <>
+          {error && (
+            <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
           {/* Dropzone */}
           <div
             onDrop={handleDrop}
@@ -365,12 +427,35 @@ function UploadStep({
 
 // ─── Step 3: Done ───
 function DoneStep({
-  filename,
+  transferId,
   onReset,
 }: {
-  filename: string;
+  transferId: string;
   onReset: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const shareUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/d/${transferId}`
+    : "";
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback
+      const input = document.createElement("input");
+      input.value = shareUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      document.body.removeChild(input);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   return (
     <div className="card p-8 w-full max-w-md animate-slide-up text-center">
       <div className="flex justify-center mb-6">
@@ -388,13 +473,22 @@ function DoneStep({
         </div>
       </div>
       <h2 className="font-display text-2xl font-bold mb-2 text-foreground">
-        Transfert termine
+        Transfert envoye
       </h2>
-      <p className="text-sm text-muted mb-1">Votre fichier a ete telecharge :</p>
-      <p className="text-sm text-accent font-medium mb-8 break-all">
-        {filename}
+      <p className="text-sm text-muted mb-4">
+        Partagez ce lien pour telecharger le fichier :
       </p>
-      <button onClick={onReset} className="btn-primary w-full">
+
+      {/* Share link */}
+      <div className="link-box mb-3">
+        <span className="text-sm text-accent break-all font-mono">{shareUrl}</span>
+      </div>
+
+      <button onClick={handleCopy} className="btn-primary w-full mb-3">
+        {copied ? "Lien copie !" : "Copier le lien"}
+      </button>
+
+      <button onClick={onReset} className="btn-secondary w-full">
         Nouveau transfert
       </button>
     </div>
@@ -405,28 +499,26 @@ function DoneStep({
 export default function Home() {
   const [step, setStep] = useState<Step>("username");
   const [username, setUsername] = useState("");
-  const [downloadedFile, setDownloadedFile] = useState("");
+  const [transferId, setTransferId] = useState("");
 
   const handleContinue = () => setStep("upload");
   const handleEditUsername = () => setStep("username");
-  const handleDone = (filename: string) => {
-    setDownloadedFile(filename);
+  const handleDone = (id: string) => {
+    setTransferId(id);
     setStep("done");
   };
   const handleReset = () => {
     setUsername("");
-    setDownloadedFile("");
+    setTransferId("");
     setStep("username");
   };
 
   return (
     <main className="relative z-10 flex flex-col items-center min-h-screen px-4 py-12">
-      {/* Logo */}
       <div className="mb-16">
         <Logo />
       </div>
 
-      {/* Steps */}
       {step === "username" && (
         <UsernameStep
           username={username}
@@ -442,7 +534,7 @@ export default function Home() {
         />
       )}
       {step === "done" && (
-        <DoneStep filename={downloadedFile} onReset={handleReset} />
+        <DoneStep transferId={transferId} onReset={handleReset} />
       )}
     </main>
   );
